@@ -9,6 +9,7 @@
 #include <errno.h>
 
 #define SCHEDULER_PIPE "/tmp/scheduler_pipe" // The same pipe name
+#define TEMP_FILE "/tmp/pid_temp.txt" // Same path as in shell code
 #define MAX_SIZE 250
 
 int front = 0,rear = 0;
@@ -57,9 +58,38 @@ void handle_sigstop(int sig) {
 }
 
 void handle_sigusr(int signo){
-    printf("SIGUSR\n");
+    write(STDOUT_FILENO, "SIGUSR\n", 7);  // Avoids printf buffering issues
 
-    read_pipe = 1; // Set the flag to indicate a PID is available
+    // Handle PIDs sent from the shell
+    // int fd = open(SCHEDULER_PIPE, O_RDONLY);
+
+    // if(fd<0){
+    //     printf("ERROR OPENING PIPE [SCHEDULER]\n");
+    //     exit(EXIT_FAILURE);
+    // }
+
+    // pid_t pid;
+    // while (read(fd, &pid, sizeof(pid)) > 0) { // Read the PID from the pipe
+    //     // printf("\nProcess %d is ready to start\n", pid);
+    //     enqueue(pid); // Add to ready queue
+    // }
+    // close(fd);
+
+    FILE *file = fopen(TEMP_FILE, "r");
+    if (file != NULL) {
+        int pid;
+        fscanf(file, "%d", &pid); // Read the PID from the file
+        printf("Received PID: %d\n", pid);
+        enqueue(pid);
+        fclose(file);
+
+        // Here you can add logic to manage/process the received PID
+
+        // Optionally remove the temp file after reading
+        remove(TEMP_FILE);
+    } else {
+        printf("No new PIDs found.\n");
+    }
 }
 
 // Function to check if a process has finished
@@ -85,7 +115,6 @@ int check_process_status(pid_t pid) {
 
 void start_scheduler() {
     signal(SIGTERM, handle_sigstop);
-    signal(SIGUSR1,handle_sigusr);
 
     struct timespec req = { .tv_sec = 0, .tv_nsec = TSLICE * 1000000L };
 
@@ -129,27 +158,16 @@ void start_scheduler() {
             }
 
         }
-
-        // Handle PIDs sent from the shell
-        int fd = open(SCHEDULER_PIPE, O_RDONLY);
-
-        if(fd<0){
-            printf("ERROR OPENING PIPE [SCHEDULER]\n");
-            exit(EXIT_FAILURE);
-        }
-
-        pid_t pid;
-        while (read(fd, &pid, sizeof(pid)) > 0) { // Read the PID from the pipe
-            // printf("\nProcess %d is ready to start\n", pid);
-            enqueue(pid); // Add to ready queue
-        }
-        close(fd);
-
-        
     }
 }
 
 int main(int argc,char** argv) {
+
+    signal(SIGUSR1,handle_sigusr);
+
+    for(int i =0;i<MAX_SIZE;i++){
+        ready_queue[i]=-1;
+    }
 
     num_CPU = atoi(argv[1]);
     TSLICE = atoi(argv[2]);

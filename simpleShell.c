@@ -14,6 +14,7 @@
 #define MAX_COMMANDS 20000
 
 #define SCHEDULER_PIPE "/tmp/scheduler_pipe" // FOR IPC
+#define TEMP_FILE "/tmp/pid_temp.txt" // Define the path for the temporary file
 
 char** history[MAX_COMMANDS];
 int history_ptr = 0;
@@ -608,31 +609,63 @@ int submit(char** inp){
 
     if(pid==0){
         // child
+        printf("------SUBMITTED NEW PROC WITH ID:%d-------\n",getpid());
         kill(getpid(), SIGSTOP);
-        printf("------\nSUBMITTED NEW PROC WITH ID:%d\n-------\n",getpid());
         execvp(path, args);
-        perror("Error: exec failed");
+        printf("Error: exec failed\n");
         exit(EXIT_FAILURE);
     }else{
         // Parent process
         // Send the PID to the scheduler via named pipe
 
-        int fd = open(SCHEDULER_PIPE, O_WRONLY);
-        if (fd < 0) {
-            printf("Error: Could not open scheduler pipe\n");
-            kill(scheduler_PID,SIGTERM);
-            exit(EXIT_FAILURE);
-        }
+        // printf("Attempting to open scheduler pipe...\n");
 
-        if(write(fd, &pid, sizeof(pid)) == -1) {
-            printf("Error writing PID to scheduler pipe\n");
-            close(fd);
-            kill(scheduler_PID, SIGTERM);
-            exit(EXIT_FAILURE);
-        }
+        // // Remove the FIFO if it already exists
+        // unlink(SCHEDULER_PIPE);
+
+        // // Create the FIFO pipe once
+        // if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
+        //     printf("Failed to create FIFO\n");
+        //     exit(EXIT_FAILURE);
+        // }else{
+        //     printf("Pipe Created Successfully [shell]\n");
+        // }
+
+        // int fd = open(SCHEDULER_PIPE, O_WRONLY);
+        // if (fd < 0) {
+        //     printf("Error: Could not open scheduler pipe\n");
+        //     kill(scheduler_PID, SIGTERM);
+        //     exit(EXIT_FAILURE);
+        // }else{
+        //     printf("PIPE OPENED [shell]\n");
+        // }
+
+        // printf("Writing PID %d to scheduler pipe...\n", pid);
+        // if (write(fd, &pid, sizeof(pid)) == -1) {
+        //     perror("Error writing PID to scheduler pipe");
+        //     close(fd);
+        //     kill(scheduler_PID, SIGTERM);
+        //     exit(EXIT_FAILURE);
+        // }
 
         // kill(scheduler_PID, SIGUSR1);
-        close(fd);
+        // printf("SIGNALSENT!\n");
+        // close(fd);
+
+        printf("Submitted new process with PID: %d\n", pid);
+
+        // Write the PID to a temporary file
+        FILE *file = fopen(TEMP_FILE, "w");
+        if (file == NULL) {
+            perror("Error opening temp file");
+            exit(EXIT_FAILURE);
+        }
+        
+        fprintf(file, "%d\n", pid); // Write the PID to the file
+        fclose(file); // Close the file
+
+        kill(scheduler_PID,SIGUSR1);
+
     }
 
     // Free the allocated memory
