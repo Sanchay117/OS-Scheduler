@@ -14,6 +14,8 @@
 int front = 0,rear = 0;
 int num_CPU,TSLICE;
 
+volatile sig_atomic_t read_pipe = 1;
+
 pid_t ready_queue[MAX_SIZE];
 
 void enqueue(pid_t pid) {
@@ -43,25 +45,89 @@ pid_t dequeue() {
     return pid;
 }
 
+// Function to handle SIGSTOP signal
+void handle_sigstop(int sig) {
+    printf("Received SIGSTOP, terminating all managed processes...\n");
+    for (int i = 0; i < MAX_SIZE; i++) {
+        if (ready_queue[i] > 0) {
+            kill(ready_queue[i], SIGKILL); // Terminate the process
+        }
+    }
+    exit(EXIT_SUCCESS); // Exit the scheduler
+}
+
+void handle_sigusr(int signo){
+    printf("SIGUSR\n");
+
+    read_pipe = 1; // Set the flag to indicate a PID is available
+}
 
 void start_scheduler() {
-    mkfifo(SCHEDULER_PIPE, 0666); // Create named pipe if it doesn’t exist
+    signal(SIGTERM, handle_sigstop);
+    signal(SIGUSR1,handle_sigusr);
+
+    struct timespec req = { .tv_sec = 0, .tv_nsec = TSLICE * 1000000L };
+
+    // Remove the FIFO if it already exists
+    unlink(SCHEDULER_PIPE);
+
+    // Create the FIFO pipe once
+    if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
+        printf("Failed to create FIFO\n");
+        exit(EXIT_FAILURE);
+    }
 
     while (1) {
-        int fd = open(SCHEDULER_PIPE, O_RDONLY);
-        if (fd < 0) {
-            printf("Error: Could not open scheduler pipe\n Closing Scheduler\n");
-            exit(EXIT_FAILURE);
+        pid_t active_processes[num_CPU];
+        int count = 0;
+
+        // Fetch NCPU processes from the ready queue
+        for (int i = 0; i < num_CPU && front != rear; i++) {
+            
+
+            pid_t pid = dequeue();
+            if (pid > 0) {
+                kill(pid, SIGCONT); // Start the process
+                // printf("PID:%d  STARTED\n",pid);
+                active_processes[count++] = pid;
+            }
         }
+
+        // Wait for the timeslice to expire
+        nanosleep(&req, NULL);
+
+        // Stop and re-queue each active process
+        for (int i = 0; i < count; i++) {
+            if(kill(active_processes[i],0)==0){
+                kill(active_processes[i], SIGSTOP); // Pause the process
+                // printf("PID:%d  STOPPED\n",active_processes[i]);
+                enqueue(active_processes[i]);       // Re-add to the rear of the queue
+            }else{
+                // printf("Process %d has finished execution.\n", active_processes[i]);
+            }
+            
+        }
+
+        if(read_pipe==1){
+            // Handle PIDs sent from the shell
+            int fd = open(SCHEDULER_PIPE, O_RDONLY);
+
+            if(fd<0){
+                printf("ERROR OPENING PIPE [SCHEDULER]\n");
+                exit(EXIT_FAILURE);
+            }
+
+            pid_t pid;
+            while (read(fd, &pid, sizeof(pid)) > 0) { // Read the PID from the pipe
+                printf("\nProcess %d is ready to start\n", pid);
+                enqueue(pid); // Add to ready queue
+            }
+            close(fd);
+
+            read_pipe = 0;
+        }
+
         
-        int pid;
-        while (read(fd, &pid, sizeof(pid)) > 0) { // Read the PID from the pipe
-            printf("Process %d is ready to start\n", pid);
-            // Signal to continue execution as per your scheduling strategy
-            kill(pid, SIGCONT);
-            // Add logic to send SIGSTOP after a time slice or other scheduler requirements
-        }
-        close(fd);
     }
 }
 

@@ -18,6 +18,8 @@
 char** history[MAX_COMMANDS];
 int history_ptr = 0;
 
+pid_t scheduler_PID;
+
 struct CommandDetails {
     char* command;
     pid_t pid;
@@ -559,6 +561,9 @@ void exit_shell(){
         // printf("Status: %s\n",stat);
         printf("-----------------------------------\n");
     }
+
+    kill(scheduler_PID,SIGTERM);
+
     exit(0);
 }
 
@@ -599,22 +604,41 @@ int submit(char** inp){
         exit(EXIT_FAILURE);
     }
 
+    printf("PID:SCHEDULER %d\n",scheduler_PID);
+
     if(pid==0){
         // child
+        printf("CHILD\n");
+
         kill(getpid(), SIGSTOP);
+        printf("SUBMITTED NEW PROC WITH ID:%d\n",getpid());
         execvp(path, args);
         perror("Error: exec failed");
         exit(EXIT_FAILURE);
     }else{
-        // parent
-
+        // Parent process
         // Send the PID to the scheduler via named pipe
+        printf("PAERENT|\n");
         int fd = open(SCHEDULER_PIPE, O_WRONLY);
         if (fd < 0) {
-            perror("Error: Could not open scheduler pipe");
-            return;
+            printf("Error: Could not open scheduler pipe\n");
+            kill(scheduler_PID,SIGTERM);
+            exit(EXIT_FAILURE);
         }
-        dprintf(fd, "%d\n", pid); // Send PID to the scheduler
+        
+        printf("DEBUG: scheduler_PID = %d\n", scheduler_PID); // Check the value
+        fflush(stdout);
+
+        if(write(fd, &pid, sizeof(pid)) == -1) {
+            perror("Error writing PID to scheduler pipe");
+            close(fd);
+            kill(scheduler_PID, SIGTERM);
+            return; // or exit(EXIT_FAILURE);
+        }
+
+        printf("PID:SCHEDULER %d\n", scheduler_PID);
+        fflush(stdout); // Ensure output is printed
+        // kill(scheduler_PID, SIGUSR1);
         close(fd);
     }
 
@@ -623,6 +647,8 @@ int submit(char** inp){
         free(args[i]);
     }
     free(args);
+
+    return 0;
 }
 
 int main(int argc,char** argv){
@@ -647,7 +673,7 @@ int main(int argc,char** argv){
         exit(1);
     }
 
-    pid_t scheduler_PID = fork();
+    scheduler_PID = fork();
 
     if(scheduler_PID<0){
         printf("Fork failed\n");
