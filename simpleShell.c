@@ -604,40 +604,33 @@ int submit(char** inp){
         exit(EXIT_FAILURE);
     }
 
-    printf("PID:SCHEDULER %d\n",scheduler_PID);
+    // printf("PID:SCHEDULER %d\n",scheduler_PID);
 
     if(pid==0){
         // child
-        printf("CHILD\n");
-
         kill(getpid(), SIGSTOP);
-        printf("SUBMITTED NEW PROC WITH ID:%d\n",getpid());
+        printf("------\nSUBMITTED NEW PROC WITH ID:%d\n-------\n",getpid());
         execvp(path, args);
         perror("Error: exec failed");
         exit(EXIT_FAILURE);
     }else{
         // Parent process
         // Send the PID to the scheduler via named pipe
-        printf("PAERENT|\n");
+
         int fd = open(SCHEDULER_PIPE, O_WRONLY);
         if (fd < 0) {
             printf("Error: Could not open scheduler pipe\n");
             kill(scheduler_PID,SIGTERM);
             exit(EXIT_FAILURE);
         }
-        
-        printf("DEBUG: scheduler_PID = %d\n", scheduler_PID); // Check the value
-        fflush(stdout);
 
         if(write(fd, &pid, sizeof(pid)) == -1) {
-            perror("Error writing PID to scheduler pipe");
+            printf("Error writing PID to scheduler pipe\n");
             close(fd);
             kill(scheduler_PID, SIGTERM);
-            return; // or exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
 
-        printf("PID:SCHEDULER %d\n", scheduler_PID);
-        fflush(stdout); // Ensure output is printed
         // kill(scheduler_PID, SIGUSR1);
         close(fd);
     }
