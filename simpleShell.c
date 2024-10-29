@@ -4,12 +4,16 @@
 #include <string.h>
 #include <stdbool.h>
 #include <sys/wait.h>
+#include <sys/types.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
+#include <fcntl.h>
 
 #define MAX_ARGS 64
 #define MAX_COMMANDS 20000
+
+#define SCHEDULER_PIPE "/tmp/scheduler_pipe" // FOR IPC
 
 char** history[MAX_COMMANDS];
 int history_ptr = 0;
@@ -25,6 +29,8 @@ struct CommandDetails {
 
 struct CommandDetails commandDetails[MAX_COMMANDS];
 int process_ptr = 0;
+
+int submit(char** inp);
 
 void add_to_history(char* command, pid_t pid, struct timeval start, struct timeval end,int status) {
     double duration = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
@@ -330,6 +336,13 @@ int create_process_and_run(char* command){
     remove_leading_spaces(command);
     remove_trailing_spaces(command);
 
+    char** inp = split_command_space(command);
+
+    if(strcmp(inp[0],"submit") == 0){
+        int result = submit(inp);
+        return result;
+    }
+
     history[history_ptr] = strdup(command);
     history_ptr++;
 
@@ -549,6 +562,69 @@ void exit_shell(){
     exit(0);
 }
 
+int submit(char** inp){
+    int length = 0;
+    while (inp[length] != NULL) {
+        length++;
+    }
+
+    if(length<2){
+        printf("Invalid Number Of Args\n");
+        return 0;
+    }
+
+    char** args = (char**)malloc(sizeof(char*)*(length));
+    
+    for (int i = 1; i < length; i++) {
+        args[i - 1] = strdup(inp[i]);
+    }
+    args[length - 1] = NULL; // Add NULL as the last element for execvp
+
+    char* path = inp[1];
+
+    if (access(path, F_OK) == -1) {
+        printf("File does not exist.\n");
+        return 0;
+    }
+
+    // Check if the file is executable
+    if (access(path, X_OK) == -1) {
+        printf("File is not an executable.\n");
+        return 0;
+    }
+
+    pid_t pid = fork();
+    if(pid<0){
+        printf("ERROR! FORK FAILED\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if(pid==0){
+        // child
+        kill(getpid(), SIGSTOP);
+        execvp(path, args);
+        perror("Error: exec failed");
+        exit(EXIT_FAILURE);
+    }else{
+        // parent
+
+        // Send the PID to the scheduler via named pipe
+        int fd = open(SCHEDULER_PIPE, O_WRONLY);
+        if (fd < 0) {
+            perror("Error: Could not open scheduler pipe");
+            return;
+        }
+        dprintf(fd, "%d\n", pid); // Send PID to the scheduler
+        close(fd);
+    }
+
+    // Free the allocated memory
+    for (int i = 0; i < length - 1; i++) {
+        free(args[i]);
+    }
+    free(args);
+}
+
 int main(int argc,char** argv){
     signal(SIGINT, exit_shell);
 
@@ -571,11 +647,39 @@ int main(int argc,char** argv){
         exit(1);
     }
 
-    printf("Scheduler initialized with %d CPU cores and time slice of %d ms\n\n", num_CPU, TSLICE);
+    pid_t scheduler_PID = fork();
 
+    if(scheduler_PID<0){
+        printf("Fork failed\n");
+        exit(EXIT_FAILURE);
+    }else if(scheduler_PID==0){
+        // child
 
-    // printf("Welcome To Our Shell!\n");
-    shell_loop();
+        char** scheduler_ARGS = (char**)malloc(sizeof(char*)*(argc+1));
+        scheduler_ARGS[0] = strdup("./scheduler");
+        int i = 1;
+        while(i<argc){
+            scheduler_ARGS[i] = strdup(argv[i]);
+            i++;
+        }
+
+        scheduler_ARGS[argc] = NULL;
+
+        execvp(scheduler_ARGS[0],scheduler_ARGS);
+
+        printf("Couldn't launch Scheduler\n");
+        exit(EXIT_FAILURE);
+
+    }else{
+
+        printf("SimpleScheduler Started with PID:%d\n\n",scheduler_PID);
+        printf("Scheduler initialized with %d CPU cores and time slice of %d ms\n\n", num_CPU, TSLICE);
+
+        // printf("Welcome To Our Shell!\n");
+        shell_loop();
+
+    }
+    
     
     return 0;
 }
