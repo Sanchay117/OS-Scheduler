@@ -18,6 +18,17 @@
 int front = 0,rear = 0;
 int num_CPU,TSLICE;
 
+int turns = 0;
+
+struct Process {
+    pid_t pid;
+    int arrivalTurn;
+    int bursts;
+};
+
+struct Process procs[MAX_SIZE];
+int ptr = 0;
+
 volatile sig_atomic_t read_pipe = 1;
 
 pid_t ready_queue[MAX_SIZE];
@@ -50,8 +61,9 @@ pid_t dequeue() {
 }
 
 // Function to handle SIGSTOP signal
-void handle_sigstop(int sig) {
+void handle_sigint(int sig) {
     printf("Received SIGSTOP, terminating all managed processes...\n");
+    fflush(stdout);
     for (int i = 0; i < MAX_SIZE; i++) {
         if (ready_queue[i] > 0) {
             kill(ready_queue[i], SIGKILL); // Terminate the process
@@ -66,17 +78,21 @@ void handle_sigusr(int signo){
     if (file != NULL) {
         int pid;
         fscanf(file, "%d", &pid); // Read the PID from the file
-        printf("Received PID: %d\n", pid);
+        // printf("Received PID: %d\n", pid);
         enqueue(pid);
         fclose(file);
 
         // Here you can add logic to manage/process the received PID
+        procs[ptr].pid = pid;
+        procs[ptr].arrivalTurn = turns;
+        ptr++;
 
         // Optionally remove the temp file after reading
         remove(TEMP_FILE);
     } else {
         printf("No new PIDs found.\n");
     }
+
 }
 
 // Function to check if a process has finished
@@ -90,14 +106,27 @@ int check_process_status(pid_t pid) {
     }
     // printf("WRITTEN PID:%d\n",pid);
     fprintf(pid_file, "%d\n", pid);
+    fprintf(pid_file,"%d\n",turns);
+    printf("TURNS [scheduler]:%d\n",turns);
+    
+    int arrivalTurn,bursts;
+    for(int  i = 0;i<ptr;i++){
+        if(procs[i].pid==pid){
+            arrivalTurn = procs[i].arrivalTurn;
+            bursts = procs[i].bursts;
+            break;
+        }
+    }
+    fprintf(pid_file,"%d\n",arrivalTurn);
+    fprintf(pid_file,"%d\n",bursts);
     fclose(pid_file);
 
     kill(getppid(),SIGUSR1);
 
     // Wait for response from shell
     while (access(TEMP_RESPONSE_FILE, F_OK) == -1) {
-        printf("Waiting for shell to process PID %d...\n", pid);
-        sleep(0.5); // Sleep for a while before checking again
+        // printf("Waiting for shell to process PID %d...\n", pid);
+        // sleep(0.5); // Sleep for a while before checking again
     }
 
     // Read response from temp response file
@@ -109,50 +138,33 @@ int check_process_status(pid_t pid) {
     if (response_file != NULL) {
         int status;
         fscanf(response_file, "%d", &status); // Read the status from the file
-        printf("Received status: %d\n", status);
+        // printf("Received status: %d\n", status);
         fclose(response_file);
 
         remove(TEMP_RESPONSE_FILE);
         remove(TEMP_PID_FILE);
 
         if(status==-1){
-            printf("An error occured\n");
-            exit(EXIT_FAILURE);
+            // printf("An error occured\n");
+            // exit(EXIT_FAILURE);
+            status = 1;
         }
 
         return status;
-
-        // Here you can add logic to manage/process the received PID
-
         
     } else {
         printf("No new statu found.\n");
+        return 0;
     }
 
-    // char response[100];
-    // fgets(response, sizeof(response), response_file);
-    // printf("Response from shell: %s\n", response);
-    // fclose(response_file);
-
-    // Optionally remove the temp files after use
     unlink(TEMP_PID_FILE);
     unlink(TEMP_RESPONSE_FILE);
     
 }
 
 void start_scheduler() {
-    signal(SIGTERM, handle_sigstop);
 
     struct timespec req = { .tv_sec = 0, .tv_nsec = TSLICE * 1000000L };
-
-    // Remove the FIFO if it already exists
-    unlink(SCHEDULER_PIPE);
-
-    // Create the FIFO pipe once
-    if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
-        printf("Failed to create FIFO\n");
-        exit(EXIT_FAILURE);
-    }
 
     while (1) {
         pid_t active_processes[num_CPU];
@@ -164,6 +176,14 @@ void start_scheduler() {
 
             pid_t pid = dequeue();
             if (pid > 0) {
+
+                for(int i =0;i<ptr;i++){
+                    if(procs[i].pid==pid){
+                        procs[i].bursts++;
+                        break;
+                    }
+                }
+
                 kill(pid, SIGCONT); // Start the process
                 printf("--------\nPID:%d  STARTED\n--------\n",pid);
                 active_processes[count++] = pid;
@@ -172,6 +192,7 @@ void start_scheduler() {
 
         // Wait for the timeslice to expire
         nanosleep(&req, NULL);
+        turns++;
 
         // Stop and re-queue each active process
         for (int i = 0; i < count; i++) {
@@ -191,9 +212,15 @@ void start_scheduler() {
 int main(int argc,char** argv) {
 
     signal(SIGUSR1,handle_sigusr);
+    signal(SIGINT, handle_sigint);
 
     for(int i =0;i<MAX_SIZE;i++){
         ready_queue[i]=-1;
+    }
+
+    for(int i = 0;i<MAX_SIZE;i++ ){
+        procs[i].bursts = 0;
+        procs[i].pid = -1;
     }
 
     num_CPU = atoi(argv[1]);

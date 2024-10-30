@@ -12,6 +12,7 @@
 
 #define MAX_ARGS 64
 #define MAX_COMMANDS 20000
+#define MAX_PROCESS 250
 
 #define SCHEDULER_PIPE "/tmp/scheduler_pipe" // FOR IPC
 #define TEMP_FILE "/tmp/pid_temp.txt" // Define the path for the temporary file
@@ -32,10 +33,21 @@ struct CommandDetails {
     int status;
 };
 
+struct Process{
+    pid_t pid;
+    char* name;
+    int completion_time;
+    int waiting_time;
+};
+
+struct Process processes[MAX_COMMANDS];
+int process_pointer = 0;
 struct CommandDetails commandDetails[MAX_COMMANDS];
 int process_ptr = 0;
 
-int submit(char** inp);
+int num_CPU,TSLICE;
+
+int submit(char** inp,char* command);
 
 void add_to_history(char* command, pid_t pid, struct timeval start, struct timeval end,int status) {
     double duration = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
@@ -341,10 +353,25 @@ int create_process_and_run(char* command){
     remove_leading_spaces(command);
     remove_trailing_spaces(command);
 
+    bool pipe = false;
+
+    for(int i = 0;command[i]!='\0';i++){
+        if(command[i]=='|') {
+            pipe = true;
+            // printf("KAKA");
+        }
+    }
+
+    if(pipe){
+        printf("Sorry Piping Not Allowed\n");
+        // printf("%d",status);
+        return 0;
+    }
+
     char** inp = split_command_space(command);
 
     if(strcmp(inp[0],"submit") == 0){
-        int result = submit(inp);
+        int result = submit(inp,command);
         return result;
     }
 
@@ -365,7 +392,7 @@ int create_process_and_run(char* command){
     int pid;
     int status;
 
-    bool pipe = false;
+    pipe = false;
 
     for(int i = 0;command[i]!='\0';i++){
         if(command[i]=='|') pipe = true;
@@ -545,27 +572,44 @@ void shell_loop(){
 void exit_shell(){
     printf("\nExiting!\n");
     printf("-----------------------------------\n");
-    printf("Command History:\n");
+    printf("Process History:\n");
     printf("-----------------------------------\n");
-    for (int i = 0; i < process_ptr; i++) {
-        struct CommandDetails cmd = commandDetails[i];
+    // for (int i = 0; i < process_ptr; i++) {
+    //     struct CommandDetails cmd = commandDetails[i];
 
-        // Convert start time to a readable format
-        struct tm* start_tm = localtime(&cmd.start_time.tv_sec);
-        char start_str[30];
-        strftime(start_str, 30, "%Y-%m-%d %H:%M:%S", start_tm);
+    //     // Convert start time to a readable format
+    //     struct tm* start_tm = localtime(&cmd.start_time.tv_sec);
+    //     char start_str[30];
+    //     strftime(start_str, 30, "%Y-%m-%d %H:%M:%S", start_tm);
 
-        printf("Command: %s\n", cmd.command);
-        printf("PID: %d\n", cmd.pid);
-        printf("Start Time: %s\n", start_str);
-        printf("Duration: %.8f seconds\n", cmd.duration);
-        char* stat = "SUCCESS";
-        if(cmd.status==1) stat = "FAIL";
-        // printf("Status: %s\n",stat);
+    //     printf("Command: %s\n", cmd.command);
+    //     printf("PID: %d\n", cmd.pid);
+    //     printf("Start Time: %s\n", start_str);
+    //     printf("Duration: %.8f seconds\n", cmd.duration);
+    //     char* stat = "SUCCESS";
+    //     if(cmd.status==1) stat = "FAIL";
+    //     // printf("Status: %s\n",stat);
+    //     printf("-----------------------------------\n");
+    // }
+
+    for(int i  = 0;i<process_pointer;i++){
+        printf("Name: %s\n",processes[i].name);
+        printf("PID: %d\n",processes[i].pid);
+        printf("Completion Time [ms] : %d\n",processes[i].completion_time);
+        printf("Waiting Time [ms] : %d\n",processes[i].waiting_time);
         printf("-----------------------------------\n");
     }
 
-    kill(scheduler_PID,SIGTERM);
+    // int status;
+    // int pid = waitpid(scheduler_PID,&status,0);
+
+    // if(WIFEXITED(status)) {
+    //     printf("%d Exit =%d\n",pid,WEXITSTATUS(status));
+    // } else if (WIFSIGNALED(status)) {
+    //     printf("Child was terminated by signal: %d\n", WTERMSIG(status));
+    // } else {
+    //     printf("Abnormal termination of %d\n", scheduler_PID);
+    // }
 
     exit(0);
 }
@@ -579,10 +623,23 @@ void sigHandler_usr(int sig){
         return;
     }
 
-    int pid;
+    int pid,turns,arrivalTurn,bursts;
     fscanf(pid_file, "%d", &pid);
+    fscanf(pid_file,"%d",&turns);
+    fscanf(pid_file,"%d",&arrivalTurn);
+    fscanf(pid_file,"%d",&bursts);
+
+    printf("TURNS [shell]:%d\n",turns);
 
     // printf("READ PID:%d\n",pid);
+
+    int ptr = 0;
+    for(int i = 0;i<process_pointer;i++){
+        if(processes[i].pid==pid){
+            ptr = i;
+            break;
+        }
+    }
 
     fclose(pid_file);
 
@@ -597,13 +654,15 @@ void sigHandler_usr(int sig){
     } else if (result == -1) {
         fprintf(response_file, "-1\n");
     } else {
+        processes[ptr].completion_time = TSLICE*turns;
+        processes[ptr].waiting_time = (turns-arrivalTurn)*TSLICE - bursts*TSLICE;
         fprintf(response_file, "1\n");
     }
     
     fclose(response_file);
 }
 
-int submit(char** inp){
+int submit(char** inp,char* command){
 
     int length = 0;
     while (inp[length] != NULL) {
@@ -645,14 +704,19 @@ int submit(char** inp){
 
     if(pid==0){
         // child
-        printf("------SUBMITTED NEW PROC WITH ID:%d-------\n",getpid());
+        // printf("------SUBMITTED NEW PROC WITH ID:%d-------\n",getpid());
         kill(getpid(), SIGSTOP);
         execvp(path, args);
         printf("Error: exec failed\n");
         exit(EXIT_FAILURE);
     }else{
 
-        printf("Submitted new process with PID: %d\n", pid);
+        // printf("Submitted new process with PID: %d\n", pid);
+
+        processes[process_pointer].name = strdup(command);
+        processes[process_pointer].pid = pid;
+        processes[process_pointer].completion_time = 0;
+        process_pointer++;
 
         // Write the PID to a temporary file
         FILE *file = fopen(TEMP_FILE, "w");
@@ -686,8 +750,8 @@ int main(int argc,char** argv){
         exit(1);
     }
 
-    int num_CPU = atoi(argv[1]);
-    int TSLICE = atoi(argv[2]);
+    num_CPU = atoi(argv[1]);
+    TSLICE = atoi(argv[2]);
 
     int available_cores = sysconf(_SC_NPROCESSORS_ONLN);
     if (num_CPU > available_cores) {
