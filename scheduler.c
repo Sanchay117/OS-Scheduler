@@ -11,6 +11,8 @@
 #define SCHEDULER_PIPE "/tmp/scheduler_pipe" // The same pipe name
 #define TEMP_FILE "/tmp/pid_temp.txt" // Same path as in shell code
 #define TEMP_FILE2 "/tmp/pid_temp2.txt" // Same path as in shell code
+#define TEMP_PID_FILE "/tmp/pid_temp.txt"
+#define TEMP_RESPONSE_FILE "/tmp/response_temp.txt"
 #define MAX_SIZE 250
 
 int front = 0,rear = 0;
@@ -80,64 +82,62 @@ void handle_sigusr(int signo){
 // Function to check if a process has finished
 int check_process_status(pid_t pid) {
 
-    // Send the PID to the scheduler via named pipe
-
-    printf("Attempting to open scheduler pipe...\n");
-
-    // Remove the FIFO if it already exists
-    unlink(SCHEDULER_PIPE);
-
-    // Create the FIFO pipe once
-    if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
-        printf("Failed to create FIFO\n");
-        exit(EXIT_FAILURE);
-    }else{
-        printf("Pipe Created Successfully [scheduler]\n");
+    // Write PID to temp file
+    FILE *pid_file = fopen(TEMP_PID_FILE, "w");
+    if (pid_file == NULL) {
+        perror("Error opening PID temp file");
+        return 1;
     }
-
-    
-
-    int fd = open(SCHEDULER_PIPE, O_WRONLY);
-    if (fd < 0) {
-        printf("Error: Could not open scheduler pipe\n");
-        exit(EXIT_FAILURE);
-    }else{
-        printf("PIPE OPENED [shell]\n");
-    }
-
-    printf("Writing PID %d to scheduler pipe...\n", pid);
-    if (write(fd, &pid, sizeof(pid)) == -1) {
-        perror("Error writing PID to scheduler pipe");
-        close(fd);
-        exit(EXIT_FAILURE);
-    }else{
-        printf("SUCES WRITE PIPE SCHEDULER\n");
-    }
-
-    close(fd);
+    // printf("WRITTEN PID:%d\n",pid);
+    fprintf(pid_file, "%d\n", pid);
+    fclose(pid_file);
 
     kill(getppid(),SIGUSR1);
 
-    int fd = open(SCHEDULER_PIPE, O_WRONLY);
-    if (fd < 0) {
-        printf("Error: Could not open scheduler pipe\n");
-        exit(EXIT_FAILURE);
-    }else{
-        printf("PIPE OPENED [shell]\n");
+    // Wait for response from shell
+    while (access(TEMP_RESPONSE_FILE, F_OK) == -1) {
+        printf("Waiting for shell to process PID %d...\n", pid);
+        sleep(0.5); // Sleep for a while before checking again
     }
 
-    int status;
-    while (read(fd, &status, sizeof(status)) > 0) {
-        printf("\nProcess Status%d\n", status);
+    // Read response from temp response file
+    FILE *response_file = fopen(TEMP_RESPONSE_FILE, "r");
+    if (response_file == NULL) {
+        perror("Error opening response temp file");
+        return 1;
+    }
+    if (response_file != NULL) {
+        int status;
+        fscanf(response_file, "%d", &status); // Read the status from the file
+        printf("Received status: %d\n", status);
+        fclose(response_file);
+
+        remove(TEMP_RESPONSE_FILE);
+        remove(TEMP_PID_FILE);
+
+        if(status==-1){
+            printf("An error occured\n");
+            exit(EXIT_FAILURE);
+        }
+
+        return status;
+
+        // Here you can add logic to manage/process the received PID
+
+        
+    } else {
+        printf("No new statu found.\n");
     }
 
-    close(fd);
+    // char response[100];
+    // fgets(response, sizeof(response), response_file);
+    // printf("Response from shell: %s\n", response);
+    // fclose(response_file);
 
-    if(status==-1){
-        printf("An Error Occured\n");
-        exit(EXIT_FAILURE);
-    }
-    return status;
+    // Optionally remove the temp files after use
+    unlink(TEMP_PID_FILE);
+    unlink(TEMP_RESPONSE_FILE);
+    
 }
 
 void start_scheduler() {

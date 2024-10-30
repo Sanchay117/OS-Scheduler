@@ -15,6 +15,8 @@
 
 #define SCHEDULER_PIPE "/tmp/scheduler_pipe" // FOR IPC
 #define TEMP_FILE "/tmp/pid_temp.txt" // Define the path for the temporary file
+#define TEMP_PID_FILE "/tmp/pid_temp.txt"
+#define TEMP_RESPONSE_FILE "/tmp/response_temp.txt"
 
 char** history[MAX_COMMANDS];
 int history_ptr = 0;
@@ -569,71 +571,39 @@ void exit_shell(){
 }
 
 void sigHandler_usr(int sig){
-    // Remove the FIFO if it already exists
-    // unlink(SCHEDULER_PIPE);
-
-    // // Create the FIFO pipe once
-    // if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
-    //     printf("Failed to create FIFO\n");
-    //     exit(EXIT_FAILURE);
-    // }else{
-    //     printf("Pipe Created Successfully [shell]\n");
-    // }
-
-    // Handle PIDs sent from the shell
-    int fd = open(SCHEDULER_PIPE, O_RDONLY);
-
-    if(fd<0){
-        printf("ERROR OPENING PIPE [SHELL]\n");
-        close(fd);
-        exit(EXIT_FAILURE);
+    // printf("SHELL SIGHANDLER\n");
+    // Read PID from temp file
+    FILE *pid_file = fopen(TEMP_PID_FILE, "r");
+    if (pid_file == NULL) {
+        perror("Error opening PID temp file");
+        return;
     }
 
-    pid_t pid;
-    while (read(fd, &pid, sizeof(pid)) > 0) { // Read the PID from the pipe
-        printf("\nProcess %d is ready to check [shell]\n", pid);
-    }
+    int pid;
+    fscanf(pid_file, "%d", &pid);
 
-    close(fd);
+    // printf("READ PID:%d\n",pid);
 
+    fclose(pid_file);
+
+    // Check if process has finished
     int status;
     pid_t result = waitpid(pid, &status, WNOHANG); // Non-blocking check
 
-    if (result == -1) {
-        printf("Error checking process status");
-        status = -1;
-    } else if (result == 0) {
-        status = 0;
+    FILE *response_file = fopen(TEMP_RESPONSE_FILE, "w");
+    
+    if (result == 0) {
+        fprintf(response_file, "0\n");
+    } else if (result == -1) {
+        fprintf(response_file, "-1\n");
     } else {
-        // Process has finished
-        if (WIFEXITED(status)) {
-            printf("Process %d finished with exit status %d\n", pid, WEXITSTATUS(status));
-        } else if (WIFSIGNALED(status)) {
-            printf("Process %d was terminated by signal %d\n", pid, WTERMSIG(status));
-        }
-        status = 1; // Process has finished
+        fprintf(response_file, "1\n");
     }
-
-    fd = open(SCHEDULER_PIPE, O_RDONLY);
-
-    if(fd<0){
-        printf("ERROR OPENING PIPE [SHELL]\n");
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
-
-    if (write(fd, &status, sizeof(status)) == -1) {
-        perror("Error writing PID to scheduler pipe");
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
-
-
-    close(fd);
+    
+    fclose(response_file);
 }
 
 int submit(char** inp){
-    signal(SIGUSR1,sigHandler_usr);
 
     int length = 0;
     while (inp[length] != NULL) {
@@ -708,6 +678,7 @@ int submit(char** inp){
 }
 
 int main(int argc,char** argv){
+    signal(SIGUSR1,sigHandler_usr);
     signal(SIGINT, exit_shell);
 
     if(argc!=3){
