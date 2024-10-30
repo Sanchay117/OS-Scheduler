@@ -582,6 +582,9 @@ void exit_shell(){
         printf("-----------------------------------\n");
     }
 
+    int status;
+    waitpid(scheduler_PID,&status,0);
+
     exit(0);
 }
 
@@ -654,6 +657,11 @@ int submit(char** inp,char* command){
     args[length - 1] = NULL; // Add NULL as the last element for execvp
 
     char* path = inp[1];
+    int priority = atoi(inp[length-1]);
+
+    if(priority<1 || priority>4){
+        priority=1;
+    }
 
     if (access(path, F_OK) == -1) {
         printf("File does not exist.\n");
@@ -698,6 +706,7 @@ int submit(char** inp,char* command){
         }
         
         fprintf(file, "%d\n", pid); // Write the PID to the file
+        fprintf(file,"%d\n",priority);
         fclose(file); // Close the file
 
         kill(scheduler_PID,SIGUSR1);

@@ -14,6 +14,9 @@
 
 #define MAX_SIZE 250
 
+int terminate = 0;
+int proc_count = 0;
+
 int front = 0,rear = 0;
 int num_CPU,TSLICE;
 
@@ -23,6 +26,7 @@ struct Process {
     pid_t pid;
     int arrivalTurn;
     int bursts;
+    int priority;
 };
 
 struct Process procs[MAX_SIZE];
@@ -60,22 +64,16 @@ pid_t dequeue() {
 }
 
 void handle_sigint(int sig) {
-    printf("Received SIGSTOP, terminating all managed processes...\n");
-    fflush(stdout);
-    for (int i = 0; i < MAX_SIZE; i++) {
-        if (ready_queue[i] > 0) {
-            kill(ready_queue[i], SIGKILL); // Terminate the process
-        }
-    }
-    exit(EXIT_SUCCESS); // Exit the scheduler
+    terminate=1;
 }
 
 void handle_sigusr(int signo){
 
     FILE *file = fopen(TEMP_FILE, "r");
     if (file != NULL) {
-        int pid;
+        int pid,priority;
         fscanf(file, "%d", &pid); // Read the PID from the file
+        fscanf(file,"%d",&priority);
         // printf("Received PID: %d\n", pid);
         enqueue(pid);
         fclose(file);
@@ -83,7 +81,10 @@ void handle_sigusr(int signo){
         // Here you can add logic to manage/process the received PID
         procs[ptr].pid = pid;
         procs[ptr].arrivalTurn = turns;
+        procs[ptr].priority = priority;
         ptr++;
+
+        proc_count++;
 
         // Optionally remove the temp file after reading
         remove(TEMP_FILE);
@@ -203,9 +204,15 @@ void start_scheduler() {
                 // printf("----------\nPID:%d  STOPPED\n--------\n",active_processes[i]);
                 enqueue(active_processes[i]);       // Re-add to the rear of the queue
             }else{
+                proc_count--;
                 // printf("----------\nProcess with PID:%d finished execution\n------------\n",active_processes[i]);
             }
 
+        }
+
+        if(terminate == 1 && proc_count==0){
+            // printf("SCHEDULER EXITING\n");
+            exit(EXIT_SUCCESS);
         }
     }
 }
