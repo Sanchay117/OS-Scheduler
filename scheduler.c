@@ -36,6 +36,14 @@ volatile sig_atomic_t read_pipe = 1;
 
 pid_t ready_queue[MAX_SIZE];
 
+int getPriority(pid_t pid){
+    for(int i = 0;i<ptr;i++){
+        if(procs[i].pid==pid){
+            return procs[i].priority;
+        }
+    }
+}
+
 void enqueue(pid_t pid) {
     if ((rear + 1) % MAX_SIZE == front) {
         printf("Queue is full\n");
@@ -49,8 +57,34 @@ void enqueue(pid_t pid) {
 
         return;
     }
-    ready_queue[rear] = pid;
-    rear = (rear + 1) % MAX_SIZE;
+
+    // higher priority means first in queue (4 before 1 etc)
+
+    int ind = rear;
+    int givenPriority = getPriority(pid);
+
+    // Find the correct position to insert based on priority
+    for (int i = front; i != rear; i = (i + 1) % MAX_SIZE) {
+        if (getPriority(ready_queue[i]) < givenPriority) {
+            ind = i;
+            break;
+        }
+    }
+
+    if(ind==rear){
+        ready_queue[rear] = pid;
+        rear = (rear + 1) % MAX_SIZE;
+        return;
+    }
+
+    // Shift processes down to make space for the new process
+    for (int i = rear; i != ind; i = (i - 1 + MAX_SIZE) % MAX_SIZE) {
+        ready_queue[i] = ready_queue[(i - 1 + MAX_SIZE) % MAX_SIZE];
+    }
+
+    // Insert the new process at its correct position
+    ready_queue[ind] = pid;
+    rear = (rear + 1) % MAX_SIZE; // Update rear pointer
 }
 
 pid_t dequeue() {
@@ -74,7 +108,7 @@ void handle_sigusr(int signo){
         int pid,priority;
         fscanf(file, "%d", &pid); // Read the PID from the file
         fscanf(file,"%d",&priority);
-        // printf("Received PID: %d\n", pid);
+        // printf("Received Prioir: %d\n", priority);
         enqueue(pid);
         fclose(file);
 

@@ -9,17 +9,17 @@ long long fib(int n){
 }
 
 void handle_sigint(int sig){
-    
+
 }
 
 int main(int argc,char** argv){
     signal(SIGINT, handle_sigint);
     int n, t1 = 0, t2 = 1, nextTerm;
 
-    if(argc!=2){
-        printf("Invalid Arguments\n");
-        exit(0);
-    }
+    // if(argc!=2){
+    //     printf("Invalid Arguments\n");
+    //     exit(0);
+    // }
 
     n = atoi(argv[1]);
 
