@@ -568,7 +568,73 @@ void exit_shell(){
     exit(0);
 }
 
+void sigHandler_usr(int sig){
+    // Remove the FIFO if it already exists
+    // unlink(SCHEDULER_PIPE);
+
+    // // Create the FIFO pipe once
+    // if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
+    //     printf("Failed to create FIFO\n");
+    //     exit(EXIT_FAILURE);
+    // }else{
+    //     printf("Pipe Created Successfully [shell]\n");
+    // }
+
+    // Handle PIDs sent from the shell
+    int fd = open(SCHEDULER_PIPE, O_RDONLY);
+
+    if(fd<0){
+        printf("ERROR OPENING PIPE [SHELL]\n");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+    pid_t pid;
+    while (read(fd, &pid, sizeof(pid)) > 0) { // Read the PID from the pipe
+        printf("\nProcess %d is ready to check [shell]\n", pid);
+    }
+
+    close(fd);
+
+    int status;
+    pid_t result = waitpid(pid, &status, WNOHANG); // Non-blocking check
+
+    if (result == -1) {
+        printf("Error checking process status");
+        status = -1;
+    } else if (result == 0) {
+        status = 0;
+    } else {
+        // Process has finished
+        if (WIFEXITED(status)) {
+            printf("Process %d finished with exit status %d\n", pid, WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            printf("Process %d was terminated by signal %d\n", pid, WTERMSIG(status));
+        }
+        status = 1; // Process has finished
+    }
+
+    fd = open(SCHEDULER_PIPE, O_RDONLY);
+
+    if(fd<0){
+        printf("ERROR OPENING PIPE [SHELL]\n");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+    if (write(fd, &status, sizeof(status)) == -1) {
+        perror("Error writing PID to scheduler pipe");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+
+    close(fd);
+}
+
 int submit(char** inp){
+    signal(SIGUSR1,sigHandler_usr);
+
     int length = 0;
     while (inp[length] != NULL) {
         length++;
@@ -615,42 +681,6 @@ int submit(char** inp){
         printf("Error: exec failed\n");
         exit(EXIT_FAILURE);
     }else{
-        // Parent process
-        // Send the PID to the scheduler via named pipe
-
-        // printf("Attempting to open scheduler pipe...\n");
-
-        // // Remove the FIFO if it already exists
-        // unlink(SCHEDULER_PIPE);
-
-        // // Create the FIFO pipe once
-        // if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
-        //     printf("Failed to create FIFO\n");
-        //     exit(EXIT_FAILURE);
-        // }else{
-        //     printf("Pipe Created Successfully [shell]\n");
-        // }
-
-        // int fd = open(SCHEDULER_PIPE, O_WRONLY);
-        // if (fd < 0) {
-        //     printf("Error: Could not open scheduler pipe\n");
-        //     kill(scheduler_PID, SIGTERM);
-        //     exit(EXIT_FAILURE);
-        // }else{
-        //     printf("PIPE OPENED [shell]\n");
-        // }
-
-        // printf("Writing PID %d to scheduler pipe...\n", pid);
-        // if (write(fd, &pid, sizeof(pid)) == -1) {
-        //     perror("Error writing PID to scheduler pipe");
-        //     close(fd);
-        //     kill(scheduler_PID, SIGTERM);
-        //     exit(EXIT_FAILURE);
-        // }
-
-        // kill(scheduler_PID, SIGUSR1);
-        // printf("SIGNALSENT!\n");
-        // close(fd);
 
         printf("Submitted new process with PID: %d\n", pid);
 

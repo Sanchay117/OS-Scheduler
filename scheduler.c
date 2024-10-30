@@ -10,6 +10,7 @@
 
 #define SCHEDULER_PIPE "/tmp/scheduler_pipe" // The same pipe name
 #define TEMP_FILE "/tmp/pid_temp.txt" // Same path as in shell code
+#define TEMP_FILE2 "/tmp/pid_temp2.txt" // Same path as in shell code
 #define MAX_SIZE 250
 
 int front = 0,rear = 0;
@@ -58,22 +59,6 @@ void handle_sigstop(int sig) {
 }
 
 void handle_sigusr(int signo){
-    write(STDOUT_FILENO, "SIGUSR\n", 7);  // Avoids printf buffering issues
-
-    // Handle PIDs sent from the shell
-    // int fd = open(SCHEDULER_PIPE, O_RDONLY);
-
-    // if(fd<0){
-    //     printf("ERROR OPENING PIPE [SCHEDULER]\n");
-    //     exit(EXIT_FAILURE);
-    // }
-
-    // pid_t pid;
-    // while (read(fd, &pid, sizeof(pid)) > 0) { // Read the PID from the pipe
-    //     // printf("\nProcess %d is ready to start\n", pid);
-    //     enqueue(pid); // Add to ready queue
-    // }
-    // close(fd);
 
     FILE *file = fopen(TEMP_FILE, "r");
     if (file != NULL) {
@@ -94,23 +79,65 @@ void handle_sigusr(int signo){
 
 // Function to check if a process has finished
 int check_process_status(pid_t pid) {
-    int status;
-    pid_t result = waitpid(pid, &status, WNOHANG); // Non-blocking check
 
-    if (result == -1) {
-        return 1;
-    } else if (result == 0) {
-        // Process is still running
-        return 0; // Process is still running
-    } else {
-        // Process has finished
-        if (WIFEXITED(status)) {
-            printf("Process %d finished with exit status %d\n", pid, WEXITSTATUS(status));
-        } else if (WIFSIGNALED(status)) {
-            printf("Process %d was terminated by signal %d\n", pid, WTERMSIG(status));
-        }
-        return 1; // Process has finished
+    // Send the PID to the scheduler via named pipe
+
+    printf("Attempting to open scheduler pipe...\n");
+
+    // Remove the FIFO if it already exists
+    unlink(SCHEDULER_PIPE);
+
+    // Create the FIFO pipe once
+    if (mkfifo(SCHEDULER_PIPE, 0666) == -1) {
+        printf("Failed to create FIFO\n");
+        exit(EXIT_FAILURE);
+    }else{
+        printf("Pipe Created Successfully [scheduler]\n");
     }
+
+    
+
+    int fd = open(SCHEDULER_PIPE, O_WRONLY);
+    if (fd < 0) {
+        printf("Error: Could not open scheduler pipe\n");
+        exit(EXIT_FAILURE);
+    }else{
+        printf("PIPE OPENED [shell]\n");
+    }
+
+    printf("Writing PID %d to scheduler pipe...\n", pid);
+    if (write(fd, &pid, sizeof(pid)) == -1) {
+        perror("Error writing PID to scheduler pipe");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }else{
+        printf("SUCES WRITE PIPE SCHEDULER\n");
+    }
+
+    close(fd);
+
+    kill(getppid(),SIGUSR1);
+
+    int fd = open(SCHEDULER_PIPE, O_WRONLY);
+    if (fd < 0) {
+        printf("Error: Could not open scheduler pipe\n");
+        exit(EXIT_FAILURE);
+    }else{
+        printf("PIPE OPENED [shell]\n");
+    }
+
+    int status;
+    while (read(fd, &status, sizeof(status)) > 0) {
+        printf("\nProcess Status%d\n", status);
+    }
+
+    close(fd);
+
+    if(status==-1){
+        printf("An Error Occured\n");
+        exit(EXIT_FAILURE);
+    }
+    return status;
 }
 
 void start_scheduler() {
@@ -149,7 +176,7 @@ void start_scheduler() {
         // Stop and re-queue each active process
         for (int i = 0; i < count; i++) {
 
-            if(kill(active_processes[i],0)==0){    
+            if(check_process_status(active_processes[i])==0){    
                 kill(active_processes[i], SIGSTOP); // Pause the process
                 printf("----------\nPID:%d  STOPPED\n--------\n",active_processes[i]);
                 enqueue(active_processes[i]);       // Re-add to the rear of the queue
