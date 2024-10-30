@@ -14,9 +14,8 @@
 #define MAX_COMMANDS 20000
 #define MAX_PROCESS 250
 
-#define SCHEDULER_PIPE "/tmp/scheduler_pipe" // FOR IPC
 #define TEMP_FILE "/tmp/pid_temp.txt" // Define the path for the temporary file
-#define TEMP_PID_FILE "/tmp/pid_temp.txt"
+#define TEMP_PID_FILE "/tmp/tmp.txt"
 #define TEMP_RESPONSE_FILE "/tmp/response_temp.txt"
 
 char** history[MAX_COMMANDS];
@@ -574,23 +573,6 @@ void exit_shell(){
     printf("-----------------------------------\n");
     printf("Process History:\n");
     printf("-----------------------------------\n");
-    // for (int i = 0; i < process_ptr; i++) {
-    //     struct CommandDetails cmd = commandDetails[i];
-
-    //     // Convert start time to a readable format
-    //     struct tm* start_tm = localtime(&cmd.start_time.tv_sec);
-    //     char start_str[30];
-    //     strftime(start_str, 30, "%Y-%m-%d %H:%M:%S", start_tm);
-
-    //     printf("Command: %s\n", cmd.command);
-    //     printf("PID: %d\n", cmd.pid);
-    //     printf("Start Time: %s\n", start_str);
-    //     printf("Duration: %.8f seconds\n", cmd.duration);
-    //     char* stat = "SUCCESS";
-    //     if(cmd.status==1) stat = "FAIL";
-    //     // printf("Status: %s\n",stat);
-    //     printf("-----------------------------------\n");
-    // }
 
     for(int i  = 0;i<process_pointer;i++){
         printf("Name: %s\n",processes[i].name);
@@ -600,23 +582,10 @@ void exit_shell(){
         printf("-----------------------------------\n");
     }
 
-    // int status;
-    // int pid = waitpid(scheduler_PID,&status,0);
-
-    // if(WIFEXITED(status)) {
-    //     printf("%d Exit =%d\n",pid,WEXITSTATUS(status));
-    // } else if (WIFSIGNALED(status)) {
-    //     printf("Child was terminated by signal: %d\n", WTERMSIG(status));
-    // } else {
-    //     printf("Abnormal termination of %d\n", scheduler_PID);
-    // }
-
     exit(0);
 }
 
 void sigHandler_usr(int sig){
-    // printf("SHELL SIGHANDLER\n");
-    // Read PID from temp file
     FILE *pid_file = fopen(TEMP_PID_FILE, "r");
     if (pid_file == NULL) {
         perror("Error opening PID temp file");
@@ -629,7 +598,7 @@ void sigHandler_usr(int sig){
     fscanf(pid_file,"%d",&arrivalTurn);
     fscanf(pid_file,"%d",&bursts);
 
-    printf("TURNS [shell]:%d\n",turns);
+    // printf("TURNS [scheduler]:%d\n %d(pid) %d(arriv) %d(burst)",turns,pid,arrivalTurn,bursts);
 
     // printf("READ PID:%d\n",pid);
 
@@ -642,6 +611,7 @@ void sigHandler_usr(int sig){
     }
 
     fclose(pid_file);
+    remove(pid_file);
 
     // Check if process has finished
     int status;
@@ -649,13 +619,15 @@ void sigHandler_usr(int sig){
 
     FILE *response_file = fopen(TEMP_RESPONSE_FILE, "w");
     
+    processes[ptr].completion_time = TSLICE*turns;
+    processes[ptr].waiting_time = (turns-arrivalTurn)*TSLICE - bursts*TSLICE - 50;
+
     if (result == 0) {
         fprintf(response_file, "0\n");
     } else if (result == -1) {
         fprintf(response_file, "-1\n");
     } else {
-        processes[ptr].completion_time = TSLICE*turns;
-        processes[ptr].waiting_time = (turns-arrivalTurn)*TSLICE - bursts*TSLICE;
+        // printf("TURNS{SCHEDULER}%d\n",turns);
         fprintf(response_file, "1\n");
     }
     

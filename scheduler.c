@@ -8,11 +8,10 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#define SCHEDULER_PIPE "/tmp/scheduler_pipe" // The same pipe name
 #define TEMP_FILE "/tmp/pid_temp.txt" // Same path as in shell code
-#define TEMP_FILE2 "/tmp/pid_temp2.txt" // Same path as in shell code
-#define TEMP_PID_FILE "/tmp/pid_temp.txt"
+#define TEMP_PID_FILE "/tmp/tmp.txt"
 #define TEMP_RESPONSE_FILE "/tmp/response_temp.txt"
+
 #define MAX_SIZE 250
 
 int front = 0,rear = 0;
@@ -97,6 +96,8 @@ void handle_sigusr(int signo){
 
 // Function to check if a process has finished
 int check_process_status(pid_t pid) {
+    unlink(TEMP_PID_FILE);
+    unlink(TEMP_RESPONSE_FILE);
 
     // Write PID to temp file
     FILE *pid_file = fopen(TEMP_PID_FILE, "w");
@@ -104,10 +105,9 @@ int check_process_status(pid_t pid) {
         perror("Error opening PID temp file");
         return 1;
     }
-    // printf("WRITTEN PID:%d\n",pid);
+    
     fprintf(pid_file, "%d\n", pid);
     fprintf(pid_file,"%d\n",turns);
-    printf("TURNS [scheduler]:%d\n",turns);
     
     int arrivalTurn,bursts;
     for(int  i = 0;i<ptr;i++){
@@ -123,10 +123,12 @@ int check_process_status(pid_t pid) {
 
     kill(getppid(),SIGUSR1);
 
+    struct timespec req = { .tv_sec = 0, .tv_nsec = 5 * 1000000L };
+
     // Wait for response from shell
     while (access(TEMP_RESPONSE_FILE, F_OK) == -1) {
         // printf("Waiting for shell to process PID %d...\n", pid);
-        // sleep(0.5); // Sleep for a while before checking again
+        nanosleep(&req,NULL); // IDK WHY BUT WITHOUT THIS LINE CODE NOT WORKING!
     }
 
     // Read response from temp response file
@@ -136,7 +138,7 @@ int check_process_status(pid_t pid) {
         return 1;
     }
     if (response_file != NULL) {
-        int status;
+        int status=-2;
         fscanf(response_file, "%d", &status); // Read the status from the file
         // printf("Received status: %d\n", status);
         fclose(response_file);
@@ -145,9 +147,9 @@ int check_process_status(pid_t pid) {
         remove(TEMP_PID_FILE);
 
         if(status==-1){
-            // printf("An error occured\n");
+            printf("An error occured\n");
             // exit(EXIT_FAILURE);
-            status = 1;
+            status = 0;
         }
 
         return status;
@@ -185,7 +187,7 @@ void start_scheduler() {
                 }
 
                 kill(pid, SIGCONT); // Start the process
-                printf("--------\nPID:%d  STARTED\n--------\n",pid);
+                // printf("--------\nPID:%d  STARTED\n--------\n",pid);
                 active_processes[count++] = pid;
             }
         }
@@ -199,10 +201,10 @@ void start_scheduler() {
 
             if(check_process_status(active_processes[i])==0){    
                 kill(active_processes[i], SIGSTOP); // Pause the process
-                printf("----------\nPID:%d  STOPPED\n--------\n",active_processes[i]);
+                // printf("----------\nPID:%d  STOPPED\n--------\n",active_processes[i]);
                 enqueue(active_processes[i]);       // Re-add to the rear of the queue
             }else{
-                printf("----------\nProcess with PID:%d finished execution\n------------\n",active_processes[i]);
+                // printf("----------\nProcess with PID:%d finished execution\n------------\n",active_processes[i]);
             }
 
         }
