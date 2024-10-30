@@ -624,6 +624,7 @@ void sigHandler_usr(int sig){
     
     processes[ptr].completion_time = TSLICE*turns;
     processes[ptr].waiting_time = (turns-arrivalTurn)*TSLICE - bursts*TSLICE - 50;
+    if(processes[ptr].waiting_time<0) processes[ptr].waiting_time = 0;
 
     if (result == 0) {
         fprintf(response_file, "0\n");

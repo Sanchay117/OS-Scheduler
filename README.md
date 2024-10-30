@@ -69,6 +69,9 @@ gcc scheduler.c -o scheduler
 ./simpleShell <N_CPU> <TSLICE>
 ```
 
+## Bonus
+We habe also implemented priority scheduling with 4 priorities(1-4) 4 being prioritized first
+
 ## Credits
 **Sanchay Singh**: Modified shell and wrote the scheduler <br/>
 **Arshad Khan**: Wrote the documentation and took care of the error handling
