@@ -59,7 +59,6 @@ pid_t dequeue() {
     return pid;
 }
 
-// Function to handle SIGSTOP signal
 void handle_sigint(int sig) {
     printf("Received SIGSTOP, terminating all managed processes...\n");
     fflush(stdout);
